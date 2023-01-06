@@ -6,17 +6,31 @@ namespace MqttFlooder
 {
     internal class Program
     {
-        private static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             IConfiguration config = new ConfigurationBuilder()
                  .AddJsonFile("appsettings.json", optional: false)
                  .Build();
 
-            Parser.Default.ParseArguments<FloodOptions>(args)
-                .WithParsed<FloodOptions>(o =>
-                {
-                    MqttFlooder.StartTheFlood(config, o);
-                });
+           await Parser.Default.ParseArguments<FloodOptions>(args)
+               .WithParsedAsync(async o =>
+               {
+                    try
+                    {
+                        await MqttFlooder.StartTheFlood(config, o);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex);
+                    }
+               });
+
+
+            Console.WriteLine("done");
+
+
         }
+
+
     }
 }
