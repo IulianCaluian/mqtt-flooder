@@ -17,64 +17,60 @@ namespace MqttFlooder
 
         public async static Task StartTheFlood(IConfiguration configuration, FloodOptions options)
         {
-
-
             // Start an MQQT client:
-            string sClientId, sTcpServer, sUserName, sPassword, sPublishTopicResponses, sPublishTopicEvents;
-
-            sClientId = configuration["MQTT:ClientId"];
-            sTcpServer = configuration["MQTT:TcpServer"];
-
-            sUserName = configuration["MQTT:User"];
-            sPassword = configuration["MQTT:Pass"];
-            
-
-            Console.WriteLine($"Starting the flooding of server [{sTcpServer}].");
+            Console.WriteLine($"Starting the flooding of server.");
 
             // Create a new MQTT client.
             var factory = new MqttFactory();
             IMqttClient mqttClient = factory.CreateMqttClient();
 
+            // Create and apply the MQTT client options.
+            var mqttOptions = BuildMqttOptions(configuration);
+            AssignMqttEventHandlers(mqttClient);
 
-            // Create TCP based options using the builder.
+            bool connectionSuccess = await ConnectMqttClientAsync(mqttClient, mqttOptions);
+
+            if (connectionSuccess)
+            {
+                await StartSendingRequests(mqttClient, options);
+            }
+
+            await DisconnectMqttClientAsync(mqttClient);
+            mqttClient.Dispose();
+
+
+            Console.WriteLine("Flooding ended.");
+        
+        }
+
+        private static MqttClientOptions BuildMqttOptions(IConfiguration configuration)
+        {
+            // Extract the MQTT client configuration values.
+            string sClientId = configuration["MQTT:ClientId"];
+            string sTcpServer = configuration["MQTT:TcpServer"];
+            string sUserName = configuration["MQTT:User"];
+            string sPassword = configuration["MQTT:Pass"];
+
+            // Create the MQTT client options builder.
             var optionsBuilder = new MqttClientOptionsBuilder()
                 .WithClientId(sClientId + "Sender")
                 .WithTcpServer(sTcpServer);
 
+            // Set the username and password if they are specified.
             if (string.IsNullOrEmpty(sUserName) == false)
                 optionsBuilder = optionsBuilder.WithCredentials(sUserName, sPassword);
 
+            // Set the clean session flag.
             optionsBuilder = optionsBuilder.WithCleanSession();
 
-            var mqtt_options = optionsBuilder.Build();
+            // Build the MQTT client options.
+            return optionsBuilder.Build();
+        }
 
-            // Setting handlers:
-
+        private static void AssignMqttEventHandlers(IMqttClient mqttClient)
+        {
             mqttClient.DisconnectedAsync += MqttClient_DisconnectedAsync;
             mqttClient.ConnectedAsync += MqttClient_ConnectedAsync;
-
-            await mqttClient.ConnectAsync(mqtt_options);
-
-            await StartSendingRequests(mqttClient, options);
-       
-            try
-            {
-                // 5. Cleanup:
-                Console.WriteLine("Disconect async");
-                await mqttClient.DisconnectAsync();
-
-                // 6. Dispose:
-                Console.WriteLine("Dispose");
-                mqttClient.Dispose();
-
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
-
-            Console.WriteLine("Flooding ended.");
-        
         }
 
         private async static Task StartSendingRequests(IMqttClient mqttClient ,FloodOptions options)
@@ -82,32 +78,31 @@ namespace MqttFlooder
             if (options.Topic is null)
                 throw new ArgumentException("The topic for mqtt is missing.");
 
-            int nrOfRequestSent = options.RequestsCount;
-            if (nrOfRequestSent <= 0) 
-                nrOfRequestSent = 1;
+            // Read the JSON content from the file, if specified.
+            JsonObject? jsonContent = ReadJsonContentFromFile(options);
 
-            int delay = options.RequestsInterval;
-            if (delay < 0) 
-                delay = 0;
+            // Set default values for the number of requests and the interval between requests.
+            int nrOfRequestSent = options.RequestsCount > 0 ? options.RequestsCount : 1;
+            int delay = options.RequestsInterval >= 0 ? options.RequestsInterval : 0;
 
-            JsonObject? obj = null;
-            if (options.ContentFilename != null)
+            foreach (int i in Enumerable.Range(0, nrOfRequestSent))
             {
-                string txt = File.ReadAllText(options.ContentFilename);
-                obj = JsonSerializer.Deserialize<JsonObject>(txt);
-
-
-            }
-
-            for (int i = 0; i < nrOfRequestSent; i++)
-            {
-                await SendMessage(mqttClient, options.Topic, obj);
-
+                await SendMessageAsync(mqttClient, options.Topic, jsonContent);
                 await Task.Delay(delay);
             }
         }
 
-        private async static Task SendMessage(IMqttClient mqttClient, string publisingTopic, JsonObject? payload)
+        private static JsonObject? ReadJsonContentFromFile(FloodOptions options)
+        {
+            if (options.ContentFilename is null)
+                return null;
+
+            string jsonString = File.ReadAllText(options.ContentFilename);
+            return JsonSerializer.Deserialize<JsonObject>(jsonString);
+        }
+
+
+        private async static Task SendMessageAsync(IMqttClient mqttClient, string publisingTopic, JsonObject? payload)
         {
    
             Guid myuuid = Guid.NewGuid();
@@ -135,6 +130,34 @@ namespace MqttFlooder
             }
 
 
+        }
+
+        private static async Task<bool> ConnectMqttClientAsync(IMqttClient mqttClient, MqttClientOptions mqttOptions)
+        {
+            try
+            {
+                Console.WriteLine("Connecting to MQTT server...");
+                await mqttClient.ConnectAsync(mqttOptions);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error connecting to MQTT server: {ex}");
+                return false;
+            }
+        }
+
+        private static async Task DisconnectMqttClientAsync(IMqttClient mqttClient)
+        {
+            try
+            {
+                Console.WriteLine("Disconnecting from MQTT server...");
+                await mqttClient.DisconnectAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error disconnecting from MQTT server: {ex}");
+            }
         }
 
         private static Task MqttClient_ConnectedAsync(MqttClientConnectedEventArgs arg)
