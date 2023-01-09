@@ -29,14 +29,11 @@ namespace MqttFlooder
             sPassword = configuration["MQTT:Pass"];
             
 
-
-
-
             Console.WriteLine($"Starting the flooding of server [{sTcpServer}].");
 
             // Create a new MQTT client.
             var factory = new MqttFactory();
-            IMqttClient _mqttClient = factory.CreateMqttClient();
+            IMqttClient mqttClient = factory.CreateMqttClient();
 
 
             // Create TCP based options using the builder.
@@ -53,31 +50,22 @@ namespace MqttFlooder
 
             // Setting handlers:
 
-            _mqttClient.DisconnectedAsync += MqttClient_DisconnectedAsync;
-            _mqttClient.ConnectedAsync += MqttClient_ConnectedAsync;
+            mqttClient.DisconnectedAsync += MqttClient_DisconnectedAsync;
+            mqttClient.ConnectedAsync += MqttClient_ConnectedAsync;
 
-            await _mqttClient.ConnectAsync(mqtt_options); 
+            await mqttClient.ConnectAsync(mqtt_options);
 
-            
-            
-            
-            await SendMessage(_mqttClient, options.Topic);
-
-   
+            await StartSendingRequests(mqttClient, options);
        
-
-
-
-
             try
             {
                 // 5. Cleanup:
                 Console.WriteLine("Disconect async");
-                await _mqttClient.DisconnectAsync();
+                await mqttClient.DisconnectAsync();
 
                 // 6. Dispose:
                 Console.WriteLine("Dispose");
-                _mqttClient.Dispose();
+                mqttClient.Dispose();
 
             }
             catch (Exception ex)
@@ -89,15 +77,43 @@ namespace MqttFlooder
         
         }
 
-        private async static Task SendMessage(IMqttClient mqttClient, string publisingTopic)
+        private async static Task StartSendingRequests(IMqttClient mqttClient ,FloodOptions options)
         {
-            JsonObject obj = new JsonObject();
-            obj.Add("prop", "test");
+            if (options.Topic is null)
+                throw new ArgumentException("The topic for mqtt is missing.");
 
+            int nrOfRequestSent = options.RequestsCount;
+            if (nrOfRequestSent <= 0) 
+                nrOfRequestSent = 1;
+
+            int delay = options.RequestsInterval;
+            if (delay < 0) 
+                delay = 0;
+
+            JsonObject? obj = null;
+            if (options.ContentFilename != null)
+            {
+                string txt = File.ReadAllText(options.ContentFilename);
+                obj = JsonSerializer.Deserialize<JsonObject>(txt);
+
+
+            }
+
+            for (int i = 0; i < nrOfRequestSent; i++)
+            {
+                await SendMessage(mqttClient, options.Topic, obj);
+
+                await Task.Delay(delay);
+            }
+        }
+
+        private async static Task SendMessage(IMqttClient mqttClient, string publisingTopic, JsonObject? payload)
+        {
+   
             Guid myuuid = Guid.NewGuid();
             string myuuidAsString = myuuid.ToString();
 
-            string json_msg_to_send = JsonSerializer.Serialize(obj);
+            string json_msg_to_send = JsonSerializer.Serialize(payload);
             byte[] binaryPayload = Encoding.UTF8.GetBytes(json_msg_to_send);
 
             try

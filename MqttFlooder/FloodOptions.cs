@@ -24,7 +24,7 @@ namespace MqttFlooder
         public int RequestsCount { get; set; }
 
         [Option("interval", Required = false, HelpText = "The interval between requests, in milliseconds.")]
-        public int RequestsRate { get; set; }
+        public int RequestsInterval { get; set; }
 
         [Usage(ApplicationAlias = "mqttflooder")]
         public static IEnumerable<Example> Examples
@@ -33,7 +33,7 @@ namespace MqttFlooder
             {
                 yield return new Example("Normal scenario", new FloodOptions { Topic = "io/commands", ContentFilename = "message1.json" });
                 yield return new Example("Sending 100 messages", new FloodOptions { Topic = "io/commands", ContentFilename = "message2.json", RequestsCount = 100 });
-                yield return new Example("Rate-limiting at 10ms intervals", new FloodOptions { RequestsRate = 10 });
+                yield return new Example("Rate-limiting at 10ms intervals", new FloodOptions { RequestsInterval = 10 });
             }
         }
 
